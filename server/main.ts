@@ -36,6 +36,10 @@ async function api(req: IncomingMessage, res: ServerResponse, path: string) {
   if (path === '/api/voices') return send(res, 200, { voices: provider.voices(), default: provider.defaultVoice });
   if (path === '/api/settings' && req.method === 'GET') return send(res, 200, await store.getSettings());
   if (path === '/api/settings' && req.method === 'PATCH') return send(res, 200, await store.updateSettings(await readBody(req)));
+  if (path === '/api/groups' && req.method === 'GET') return send(res, 200, await store.getGroups());
+  if (path === '/api/groups' && req.method === 'PUT') return send(res, 200, await store.saveGroups(await readBody(req)));
+  if (path === '/api/tabs' && req.method === 'GET') return send(res, 200, await store.getTabs());
+  if (path === '/api/tabs' && req.method === 'PUT') return send(res, 200, await store.saveTabs(await readBody(req)));
   if (path === '/api/docs' && req.method === 'GET') return send(res, 200, await store.list());
   if (path === '/api/docs' && req.method === 'POST') return send(res, 201, await store.create(await readBody(req)));
   if (m && req.method === 'GET') return send(res, 200, await store.get(m[1]));

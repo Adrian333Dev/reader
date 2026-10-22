@@ -6,6 +6,7 @@
   "description": "Local read-aloud app: paste Markdown, hear it with sentence and word highlighting.",
   "scripts": {
     "start": "pnpm --filter web build && node server/main.ts",
+    "service": "node scripts/service.ts",
     "dev": "concurrently -n server,web \"node --watch server/main.ts\" \"pnpm --filter web dev\""
   },
   "dependencies": {

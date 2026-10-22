@@ -67,6 +67,7 @@ export function ReaderView({ doc, player, onPosition }: Props) {
       }
       wasPaused = paused
     })
+    // Leaving the document, for another tab or a paste, stops the voice; the position is already saved.
     return () => {
       unsubscribe()
       player.stop()
@@ -108,7 +109,7 @@ export function ReaderView({ doc, player, onPosition }: Props) {
       if (!range || !container) return setReadButton(null)
       const r = range.getBoundingClientRect()
       const c = container.getBoundingClientRect()
-      setReadButton({ top: r.top - c.top - 38, left: Math.max(0, r.left - c.left) })
+      setReadButton({ top: r.top - c.top - 34, left: Math.max(0, r.left - c.left) })
     }
     window.addEventListener("keydown", down, true)
     window.addEventListener("keyup", up, true)
@@ -120,16 +121,19 @@ export function ReaderView({ doc, player, onPosition }: Props) {
     }
   }, [player])
 
-  // A click on a word reads from it. Links open only with Ctrl or Cmd.
+  // A click on a word reads from it; a drag that selected text doesn't. Links open only with Ctrl or Cmd.
   const onClick = (e: React.MouseEvent) => {
-    if (selectedRange(articleRef.current)) return
-    const target = e.target as HTMLElement
-    if (target.closest("a")) {
-      if (e.ctrlKey || e.metaKey) return
-      e.preventDefault()
-    }
-    const word = target.closest<HTMLElement>("span.w")
-    if (word) player.play(Number(word.dataset.s), Number(word.dataset.w))
+    const link = (e.target as HTMLElement).closest("a")
+    if (link && (e.ctrlKey || e.metaKey)) return
+    if (link) e.preventDefault()
+    const word = (e.target as HTMLElement).closest<HTMLElement>("span.w")
+    if (!word || e.detail > 1 || !getSelection()?.isCollapsed) return
+    player.play(Number(word.dataset.s), Number(word.dataset.w))
+  }
+  // A double-click already started reading on its first click; drop the word it selected.
+  const onDoubleClick = () => {
+    getSelection()?.removeAllRanges()
+    setReadButton(null)
   }
 
   const userScrolled = () => { userScrolledAt.current = Date.now() }
@@ -137,24 +141,26 @@ export function ReaderView({ doc, player, onPosition }: Props) {
   return (
     <div
       ref={scrollRef}
-      className="h-full overflow-y-auto"
+      className="h-full overflow-y-auto [scrollbar-gutter:stable_both-edges]"
       onWheel={userScrolled}
       onTouchMove={userScrolled}
       onPointerDown={e => e.target === e.currentTarget && userScrolled()}
     >
       <div ref={containerRef} className="relative mx-auto max-w-[808px] px-6 pt-10 pb-[40vh]">
-        <article ref={articleRef} className="markdown-body reader-body relative z-10" onClick={onClick}>
+        <article ref={articleRef} className="markdown-body reader-body relative z-10" onClick={onClick} onDoubleClick={onDoubleClick}>
           {content}
         </article>
         {readButton && (
           <Button
-            size="sm"
-            className="absolute z-20 shadow-md"
+            size="icon-sm"
+            className="absolute z-20 rounded-full shadow-md [&_svg]:size-3.5"
             style={{ top: readButton.top, left: readButton.left }}
+            aria-label="Read from here"
+            title="Read from here"
             onMouseDown={e => e.preventDefault()}
             onClick={() => { const r = selectedRange(articleRef.current); if (r) readFrom(r) }}
           >
-            <Play className="fill-current" /> Read from here
+            <Play className="ml-px fill-current" />
           </Button>
         )}
       </div>

@@ -20,9 +20,13 @@ export class Player {
   onPosition: (sentence: number, word: number) => void = () => {}
   onError: (error: Error) => void = () => {}
 
+  // Speech rate at 1×, learned from every sentence made; 15 characters a second until the first arrives.
+  private rate = { chars: 0, ms: 0 }
   private cache = new Map<string, Promise<Clip>>()
+  private lengths = new Map<string, number>() // played length at 1× of each sentence made, by cache key
   private current: Current | null = null
   private run = 0
+  private aborter = new AbortController() // cancels the speech requests of the document loaded before
   private listeners = new Set<() => void>()
   private snapshot = { state: this.state, index: 0 }
 
@@ -34,10 +38,15 @@ export class Player {
     this.listeners.forEach(fn => fn())
   }
 
+  // A new document: playback stops, and the request still on its way for the old one is cancelled.
+  // Loading starts no synthesis; only Play does.
   load(sentences: Sentence[], pageWords: string[][], index = 0) {
     this.stop()
+    this.aborter.abort()
+    this.aborter = new AbortController()
     for (const p of this.cache.values()) p.then(c => URL.revokeObjectURL(c.url), () => {})
     this.cache.clear()
+    this.lengths.clear()
     this.sentences = sentences
     this.pageWords = pageWords
     this.index = Math.min(index, Math.max(0, sentences.length - 1))
@@ -79,6 +88,21 @@ export class Player {
     this.current = null
   }
 
+  // Seconds left at the current speed. Sentences already made count their real length, the playing one only
+  // what is left of its audio; the rest are estimated from the speech rate learned so far.
+  remaining() {
+    const cps = this.rate.ms ? (this.rate.chars * 1000) / this.rate.ms : 15
+    let ms = 0
+    for (let i = this.index; i < this.sentences.length; i++) {
+      const s = this.sentences[i]
+      if (i > this.index && s.newBlock) ms += BLOCK_PAUSE_MS
+      const c = this.current
+      if (i === this.index && c?.index === i && !c.audio.ended) ms += c.audio.duration * 1000 - c.audio.currentTime * 1000
+      else ms += this.lengths.get(`${this.voice}|${i}`) ?? (s.text.length / cps) * 1000
+    }
+    return Math.max(0, ms) / 1000 / this.speed
+  }
+
   next() { if (this.index < this.sentences.length - 1) this.jump(this.index + 1) }
   prev() { if (this.index > 0) this.jump(this.index - 1) }
 
@@ -98,7 +122,8 @@ export class Player {
     this.current?.audio.pause()
     this.index = index
     this.onPosition(index, -1)
-    this.setState("loading")
+    // Already playing (the next sentence, a jump, a new voice): stay "playing", so the button doesn't flicker.
+    if (this.state === "paused") this.setState("loading")
     this.prefetch(index, run)
     let clip: Clip
     try {
@@ -156,11 +181,21 @@ export class Player {
     const key = `${this.voice}|${index}`
     let p = this.cache.get(key)
     if (!p) {
-      p = synth(this.sentences[index].text, this.voice).then(r => ({
-        url: URL.createObjectURL(new Blob([Uint8Array.from(atob(r.audio), c => c.charCodeAt(0))], { type: "audio/wav" })),
-        times: align(this.pageWords[index] ?? [], r),
-      }))
-      p.catch(() => this.cache.delete(key))
+      const text = this.sentences[index].text
+      p = synth(text, this.voice, this.aborter.signal).then(r => {
+        const bytes = Uint8Array.from(atob(r.audio), c => c.charCodeAt(0))
+        // Played from LEAD_MS before the first word to the end of the audio, trailing silence included.
+        const ms = Math.max(0, wavMs(bytes) - Math.max(0, (r.wtimes[0] ?? 0) - LEAD_MS))
+        this.lengths.set(key, ms)
+        this.rate.chars += text.length
+        this.rate.ms += ms
+        return {
+          url: URL.createObjectURL(new Blob([bytes], { type: "audio/wav" })),
+          times: align(this.pageWords[index] ?? [], r),
+        }
+      })
+      // Only its own entry: a cancelled request from the old document shares keys with the new one.
+      p.catch(() => { if (this.cache.get(key) === p) this.cache.delete(key) })
       this.cache.set(key, p)
     }
     return p
@@ -170,6 +205,13 @@ export class Player {
     this.state = s
     this.emit()
   }
+}
+
+// A PCM WAV's length in ms: data bytes over the header's bytes per second (offset 28).
+function wavMs(bytes: Uint8Array) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const byteRate = bytes.length > 44 ? view.getUint32(28, true) : 0
+  return byteRate ? ((bytes.length - 44) / byteRate) * 1000 : 0
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")

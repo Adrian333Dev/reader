@@ -47,8 +47,17 @@ export class Highlighter {
     this.word = word
     // The word's own spans take a class too: in dark mode their text darkens over the solid word box.
     for (const span of word >= 0 ? this.wordSpans[sentence]?.[word] ?? [] : []) span.classList.add("reader-word-active")
-    if (redrawSentence) this.drawLayer(this.sentenceLayer, this.lines(this.sentenceSpans[sentence] ?? []), "reader-hl-sentence")
-    this.drawLayer(this.wordLayer, word >= 0 ? this.lines(this.wordSpans[sentence]?.[word] ?? []) : [], "reader-hl-word")
+    // The word box takes its line's top and bottom from the sentence band, so both are always the same height,
+    // even where inline code or a quote mark makes one span taller than the rest of the line.
+    const bands = this.lines(this.sentenceSpans[sentence] ?? [])
+    if (redrawSentence) this.drawLayer(this.sentenceLayer, bands, "reader-hl-sentence")
+    const words = word >= 0 ? this.lines(this.wordSpans[sentence]?.[word] ?? []) : []
+    // The band whose middle is nearest the word's: bands may touch, so "the first band touching" can be the line above.
+    const mid = (r: DOMRect) => r.top + r.height / 2
+    this.drawLayer(this.wordLayer, words.map(r => {
+      const band = bands.reduce<DOMRect | undefined>((best, b) => (!best || Math.abs(mid(b) - mid(r)) < Math.abs(mid(best) - mid(r)) ? b : best), undefined)
+      return band ? new DOMRect(r.x, band.y, r.width, band.height) : r
+    }), "reader-hl-word")
   }
 
   draw() {
@@ -75,11 +84,22 @@ export class Highlighter {
         if (row) {
           row.left = Math.min(row.left, r.left)
           row.right = Math.max(row.right, r.right)
+          row.top = Math.min(row.top, r.top)
           row.bottom = Math.max(row.bottom, r.bottom)
         } else rows.push({ top: r.top, bottom: r.bottom, left: r.left, right: r.right })
       }
     }
-    return rows.map(r => new DOMRect(r.left - origin.left - PAD_X, r.top - origin.top - PAD_Y, r.right - r.left + 2 * PAD_X, r.bottom - r.top + 2 * PAD_Y))
+    // Padded rows of tight lines, such as a wrapped heading, would overlap and show a darker strip where they do.
+    // Two neighbours meet halfway across the gap between their text instead.
+    rows.sort((a, b) => a.top - b.top)
+    const edges = rows.map(r => ({ top: r.top - PAD_Y, bottom: r.bottom + PAD_Y }))
+    for (let i = 1; i < rows.length; i++) {
+      if (edges[i - 1].bottom <= edges[i].top) continue
+      const meet = (rows[i - 1].bottom + rows[i].top) / 2
+      edges[i - 1].bottom = edges[i].top = meet
+    }
+    return rows.map((r, i) =>
+      new DOMRect(r.left - origin.left - PAD_X, edges[i].top - origin.top, r.right - r.left + 2 * PAD_X, edges[i].bottom - edges[i].top))
   }
 
   private drawLayer(layer: HTMLElement, rects: DOMRect[], className: string) {

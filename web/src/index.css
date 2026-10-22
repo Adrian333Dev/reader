@@ -107,14 +107,22 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
+    /* Menus, popovers and hovers in the page's own blue-grey, not shadcn's neutral grey. */
     --background: #0d1117;
+    --card: #161b22;
+    --popover: #161b22;
+    --secondary: #1f2630;
+    --muted: #1f2630;
+    --accent: #1f2630;
+    --border: #262c36;
+    --input: #2d3440;
     --sidebar: #11161d;
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.922 0 0);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent: #1f2630;
     --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-border: #262c36;
     --sidebar-ring: oklch(0.556 0 0);
 }
 
@@ -132,6 +140,34 @@
     @apply font-sans;
     }
 }
+
+/* Scrollbars: a thin rounded thumb on a clear track. Chromium draws ::-webkit-scrollbar; Firefox has only
+   scrollbar-width and scrollbar-color, which Chromium would obey instead, so they apply to Firefox alone.
+   Scroll areas reserve the gutter (scrollbar-gutter: stable), so content never shifts when a bar appears. */
+:root { --scroll-thumb: oklch(0 0 0 / 18%); --scroll-thumb-hover: oklch(0 0 0 / 32%); }
+.dark { --scroll-thumb: oklch(1 0 0 / 16%); --scroll-thumb-hover: oklch(1 0 0 / 30%); }
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb) padding-box;
+  border: 3px solid transparent;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); border-width: 2px; }
+
+/* Group colours: --group (any CSS colour) gives only the hue. Chip, text and line sit at fixed lightness and capped
+   chroma, so every colour, custom ones included, has the same contrast. Light: pale chip, deep text. Dark: the reverse. */
+:root { --chip-l: 0.93; --chip-c: 0.045; --chip-text-l: 0.38; --chip-text-c: 0.09; --chip-line-l: 0.62; --chip-line-c: 0.1; }
+.dark { --chip-l: 0.33; --chip-c: 0.06; --chip-text-l: 0.9; --chip-text-c: 0.07; --chip-line-l: 0.55; --chip-line-c: 0.1; }
+.group-chip {
+  background: oklch(from var(--group) var(--chip-l) min(c, var(--chip-c)) h);
+  color: oklch(from var(--group) var(--chip-text-l) min(c, var(--chip-text-c)) h);
+}
+.group-line { border-color: oklch(from var(--group) var(--chip-line-l) min(c, var(--chip-line-c)) h); }
+.group-dot { background: oklch(from var(--group) var(--chip-line-l) min(c, var(--chip-line-c)) h); }
 
 /* Reading highlights: one colour family, the sentence a pale wash, the word strong. */
 :root {
@@ -155,7 +191,6 @@
 .reader-body ul { list-style: disc; }
 .reader-body ol { list-style: decimal; }
 .reader-body ul ul { list-style: circle; }
-.reader-body span.w { cursor: pointer; }
 
 /* Skipped blocks: shown dimmed with a label, never read. */
 .reader-body pre.skip {

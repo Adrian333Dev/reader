@@ -1,6 +1,6 @@
 // The player: one panel floating over the bottom of the reading pane.
-// Top row: progress line and position. Bottom row: voice, back / play / forward, speed, colours.
-import { useRef, useSyncExternalStore } from "react"
+// Always shown. Top row: progress line and time left. Bottom row: voice, back / play / forward, speed, colours.
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { ChevronUp, Loader2, Palette, Pause, Play, SkipBack, SkipForward } from "lucide-react"
 import { DEFAULT_COLORS, synth, type EngineStatus, type Settings, type Voice } from "@/lib/api"
 import type { Player } from "@/reading/player"
@@ -21,6 +21,11 @@ const PRESETS = [
   { name: "Grey", sentenceColor: "#d4d4d4", wordColor: "#a3a3a3" },
 ]
 
+const clock = (seconds: number) => {
+  const s = Math.round(seconds)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+}
+
 type Props = {
   player: Player
   voices: Voice[]
@@ -30,13 +35,27 @@ type Props = {
   onSettings: (changes: Settings) => void
 }
 
+const ownsKeys = (t: EventTarget | null) =>
+  t instanceof HTMLElement &&
+  (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || !!t.closest("[role=menu],[role=dialog],[role=alertdialog]"))
+
 export function PlayerBar({ player, voices, settings, engine, hasDoc, onSettings }: Props) {
   const { state, index } = useSyncExternalStore(player.subscribe, player.getSnapshot)
   const sample = useRef<HTMLAudioElement | null>(null)
+  const [voiceOpen, setVoiceOpen] = useState(false)
+  const [colorsOpen, setColorsOpen] = useState(false)
   const total = hasDoc ? player.sentences.length : 0
   const progress = total ? ((index + 1) / total) * 100 : 0
   const voice = voices.find(v => v.id === settings.voice)
   const speed = settings.speed ?? 1
+  // Re-read on every render; while playing, a one-second tick re-renders so the time counts down.
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (state !== "playing") return
+    const t = setInterval(() => tick(n => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [state])
+  const left = player.remaining()
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!total) return
@@ -64,15 +83,34 @@ export function PlayerBar({ player, voices, settings, engine, hasDoc, onSettings
     player.setSpeed(Number(value))
   }
 
+  // V voices, C colours, + and − speed.
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {})
+  keys.current = e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || ownsKeys(e.target)) return
+    const step = e.key === "+" || e.key === "=" ? 1 : e.key === "-" || e.key === "_" ? -1 : 0
+    if (step) {
+      const next = SPEEDS[SPEEDS.indexOf(speed) + step]
+      if (next) chooseSpeed(String(next))
+    } else if (e.key === "v" && voices.length) setVoiceOpen(true)
+    else if (e.key === "c") setColorsOpen(true)
+    else return
+    e.preventDefault()
+  }
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => keys.current(e)
+    window.addEventListener("keydown", down)
+    return () => window.removeEventListener("keydown", down)
+  }, [])
+
   const groups = [
     ["Male", voices.filter(v => v.gender === "male")],
     ["Female", voices.filter(v => v.gender === "female")],
   ] as const
 
   return (
-    <div className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-xl bg-popover px-2 pt-2 pb-1.5 shadow-[0_6px_24px_rgb(0_0_0/0.10),0_1px_3px_rgb(0_0_0/0.08)] dark:bg-[#161b22] dark:shadow-[0_6px_24px_rgb(0_0_0/0.5),0_0_0_1px_#262c36]">
+    <div className="absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-xl bg-popover px-1.5 pt-2 pb-1.5 shadow-[0_6px_24px_rgb(0_0_0/0.10),0_1px_3px_rgb(0_0_0/0.08)] dark:shadow-[0_6px_24px_rgb(0_0_0/0.5),0_0_0_1px_#262c36]">
       {/* Progress: a thin line, taller on hover, click to jump. The engine's state shows here while it is not ready. */}
-      <div className="flex items-center gap-2.5 px-1.5 pb-1">
+      <div className="flex items-center gap-2 pr-1 pl-2 pb-1">
         <div className="group flex h-3 flex-1 cursor-pointer items-center" onClick={seek}>
           <div className="h-1 w-full overflow-hidden rounded-full bg-border transition-[height] group-hover:h-1.5">
             <div className="h-full bg-foreground/65" style={{ width: `${progress}%` }} />
@@ -84,17 +122,18 @@ export function PlayerBar({ player, voices, settings, engine, hasDoc, onSettings
             {engine === "starting" ? "Voice starting…" : "Voice engine stopped"}
           </span>
         ) : (
-          total > 0 && <span className="text-xs text-muted-foreground tabular-nums">{index + 1} / {total}</span>
+          total > 0 && (
+            <span className="text-xs text-muted-foreground tabular-nums" title={`Time left at ${speed}×`}>
+              {clock(left)}
+            </span>
+          )
         )}
       </div>
 
       <div className="flex items-center gap-0.5">
-          <DropdownMenu>
+          <DropdownMenu open={voiceOpen} onOpenChange={setVoiceOpen}>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-2 pl-1.5" disabled={!voices.length}>
-                <span className="flex size-5 items-center justify-center rounded-full bg-foreground text-[0.65rem] font-semibold text-background">
-                  {voice?.name[0] ?? "?"}
-                </span>
+              <Button variant="ghost" className="gap-1 pl-2.5" disabled={!voices.length}>
                 {voice?.name ?? "Voice"}
                 <ChevronUp className="text-muted-foreground" />
               </Button>
@@ -134,7 +173,7 @@ export function PlayerBar({ player, voices, settings, engine, hasDoc, onSettings
           <span className="mx-1 h-5.5 w-px bg-border" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-1 px-2 tabular-nums" aria-label="Speed">
+              <Button variant="ghost" className="gap-0.5 px-1.5 tabular-nums" aria-label="Speed">
                 {speed}× <ChevronUp className="text-muted-foreground" />
               </Button>
             </DropdownMenuTrigger>
@@ -144,7 +183,7 @@ export function PlayerBar({ player, voices, settings, engine, hasDoc, onSettings
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Popover>
+          <Popover open={colorsOpen} onOpenChange={setColorsOpen}>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="icon" aria-label="Highlight colours"><Palette /></Button>
             </PopoverTrigger>
