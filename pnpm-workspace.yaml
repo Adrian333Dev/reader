@@ -1,0 +1,9 @@
+packages:
+  - web
+
+allowBuilds:
+  '@met4citizen/headtts': true
+  onnxruntime-node: true
+  protobufjs: true
+  esbuild: true
+  msw: false

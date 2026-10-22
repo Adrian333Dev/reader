@@ -22,19 +22,24 @@ From the user, 2026-10-22. The goal is the simplest version they can use at once
   - The sentence being read: a faint highlight.
   - The word being spoken inside it: a strong highlight.
 - Clicking any word jumps playback there and reading continues from it.
+- Code blocks are skipped, whatever the language, JSON included. They stay on the page but are not read. Prose is read.
 
 ## Speed
 
 - Streaming: audio starts after the first sentence. Later sentences are synthesized while earlier ones play.
-- Parallel streaming: several sentences are synthesized at once.
+- Synthesis runs ahead: 8 sentences are ready before they are needed.
 
-## Open for groundwork
+## Added in groundwork, 2026-10-22
 
-- Layout: the user decides it in groundwork.
-- Where documents are stored: browser storage or files on disk.
-- Whether parallel synthesis speeds up CPU synthesis. HeadTTS runs `threads: 1`. Measure first.
-- Pause and resume, speed and voice controls.
-- Caching audio by sentence. The findings say the cache key is safe.
+Ticket `rd-1` holds the reasons.
+
+- Ctrl+V anywhere on the page creates a document from the clipboard. Upload of `.md` and `.txt` files is the secondary path.
+- Documents are listed newest first, and renamed by double-click or from the title.
+- Selecting text and pressing Space, or the Read button, starts reading there.
+- A bottom player: progress, previous and next sentence, a round play button, voice and speed.
+- Each document remembers where reading stopped. Sentences already heard replay from a disk cache.
+- Documents are files on disk under `data/`.
+- Several parallel synthesis workers measured slower than one, so one worker runs at low priority.
 
 ## Out of scope
 

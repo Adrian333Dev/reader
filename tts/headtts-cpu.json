@@ -12,10 +12,10 @@
   "tts": {
     "threads": 1,
 
-    "transformersModule": "/home/me/code/projects/reader/node_modules/@huggingface/transformers/dist/transformers.node.cjs",
+    "transformersModule": "node_modules/@huggingface/transformers/dist/transformers.node.cjs",
 
     "model": "onnx-community/Kokoro-82M-v1.0-ONNX-timestamped",
-    "dtype": "q8",
+    "dtype": "fp32",
     "device": "cpu",
     "styleDim": 256,
     "frameRate": 40,
@@ -23,14 +23,19 @@
 
     "languages": ["en-us"],
     "dictionaryPath": "./dictionaries",
-    "voicePath": "./voices",
-    "voices": ["af_bella", "am_fenrir"],
+    "voicePath": "tts/voices",
+    "voices": [
+      "am_michael", "am_fenrir", "am_onyx", "am_puck", "am_adam", "am_echo", "am_eric", "am_liam", "am_santa",
+      "bm_george", "bm_fable", "bm_lewis", "bm_daniel",
+      "af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore", "af_sarah", "af_nova", "af_sky", "af_alloy", "af_jessica", "af_river",
+      "bf_emma", "bf_isabella", "bf_alice", "bf_lily"
+    ],
 
     "deltaStart": -10,
     "deltaEnd": 10,
 
     "defaults": {
-      "voice": "af_bella",
+      "voice": "am_puck",
       "language": "en-us",
       "speed": 1,
       "audioEncoding": "wav"

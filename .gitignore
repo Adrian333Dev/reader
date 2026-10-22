@@ -1,5 +1,6 @@
 tmp/
 node_modules
+data/
 
 # A skill belonging to this project lives here as a real folder, committed. A
 # source's skill or a private one is a symlink holding this machine's path, which

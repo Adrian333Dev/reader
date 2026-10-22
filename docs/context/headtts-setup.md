@@ -2,12 +2,14 @@
 
 HeadTTS is a Node server that turns text into speech with the Kokoro model and returns a timestamp for every word. Verified on 2026-07-22 in the `tts-lab` prototype (`headtts-findings.md`).
 
-- **Install**: `npm install` in the project root.
-- **Config**: `tts/headtts-cpu.json`. CPU, `q8`, voices `af_bella` and `am_fenrir`, port 8882, `threads: 1`. `transformersModule` is an absolute path into this project's `node_modules`. Fix it if the project moves.
-- **Start**: from the project root, `(cd node_modules/@met4citizen/headtts && node modules/headtts-node.mjs --config "$OLDPWD/tts/headtts-cpu.json")`. The server loads `./modules`, `./dictionaries` and `./voices` by relative path, so it must start in that folder. The npm package ships all three.
-- **First request**: downloads the model once. Allow several minutes.
-- **Device**: keep `cpu`. The default `webgpu` is unreliable in Node.
-- **Client**: `tts/synth.mjs`. Run it directly for a smoke test.
+- **Install**: `pnpm install` in the project root. pnpm blocks the build scripts of `@met4citizen/headtts`, `onnxruntime-node` and `protobufjs`. `pnpm approve-builds --all` runs them and records them under `allowBuilds` in `pnpm-workspace.yaml`.
+- **Config**: `tts/headtts-cpu.json`. CPU, `fp32`, `threads: 1`, port 8882, the 28 English voices, default `am_michael`. `transformersModule` and `voicePath` are relative to the project root.
+- **Voices**: the npm package ships no `voices/` folder. The 28 English voice files sit in `tts/voices/`, copied from the `kokoro-js` package, which uses the same format.
+- **Start**: `pnpm start` runs `server/main.ts`. It writes `data/headtts-config.json` with absolute paths, then starts HeadTTS at `nice 10` inside `node_modules/@met4citizen/headtts`. HeadTTS loads `./modules` and `./dictionaries` by relative path, so it must start in that folder.
+- **First request**: downloads the model once into `@huggingface/transformers/.cache` inside `node_modules`. Allow several minutes. A fresh install loses it.
+- **Speed** (measured 2026-10-22, 16 cores): `fp32` with 1 worker makes speech 4× faster than playback; `q8` only 1.4×. 2 or 4 workers are slower than 1, because one worker already uses every core.
+- **Device**: keep `cpu`. The default `webgpu` is unreliable in Node. `cuda` fails with `libcublasLt.so.13: cannot open shared object file` until the CUDA 13 libraries are installed in WSL.
+- **Client**: `tts/synth.mjs`. Run it directly for a smoke test while HeadTTS runs.
 
 ## Calls
 
