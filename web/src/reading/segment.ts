@@ -1,12 +1,15 @@
 // Cuts a rendered document (a hast tree) into sentences and words for reading.
 // Every piece of a sentence becomes <span class="s" data-s>; words also get class "w" and data-w.
-// Code blocks, images and bare URLs are marked "skip": shown, never read.
+// Code blocks and images are marked "skip": shown, never read. Bare URLs are read; the server says them short.
 import type { Element, ElementContent, Root, Text } from "hast"
+import type { Piece } from "@/lib/api"
 
 export type Sentence = {
   text: string        // what is sent to the speech engine
+  pieces: Piece[]     // the same text cut into plain text, inline code and links, so the server can read paths
   wordCount: number
   newBlock: boolean   // first sentence of a paragraph, heading, list item or cell
+  source?: [number, number] // where its block (paragraph, heading, list item, cell) sits in the parsed Markdown
 }
 
 const BLOCK = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "td", "th", "dt", "dd", "blockquote", "figcaption", "summary", "div", "section"])
@@ -15,61 +18,67 @@ const MAX_SENTENCE = 400 // HeadTTS takes at most 500 characters per call
 const ABBREVIATION = /(?:^|\s)(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|Inc|Ltd|No|Fig|approx|cf|[A-Z])\.$/
 
 type Parent = Element | Root
-type Block = { el: Parent; texts: Text[] }
+type Kind = Omit<Piece, "text">
+type Block = { el: Parent; texts: Text[]; kinds: Kind[] }
+
+const TEXT: Kind = { type: "text" }
 
 export function segmentTree(tree: Root): Sentence[] {
   const sentences: Sentence[] = []
   const blocks: Block[] = []
   let current: Block | null = null
 
-  const walk = (node: Parent, block: Parent, skipped: boolean) => {
+  // `kind`: whether the text sits in inline code or a link; code inside a link counts as code.
+  const walk = (node: Parent, block: Parent, skipped: boolean, kind: Kind) => {
     for (const child of node.children) {
       if (child.type === "text") {
         if (skipped) continue
-        if (!current || current.el !== block) blocks.push((current = { el: block, texts: [] }))
+        if (!current || current.el !== block) blocks.push((current = { el: block, texts: [], kinds: [] }))
         current.texts.push(child)
+        current.kinds.push(kind)
       } else if (child.type === "element") {
         const skip = markSkip(child) || skipped
-        walk(child, BLOCK.has(child.tagName) ? child : block, skip)
+        const inner: Kind = child.tagName === "code" ? { type: "code" }
+          : child.tagName === "a" ? { type: "link", href: String(child.properties.href ?? "") }
+          : kind
+        walk(child, BLOCK.has(child.tagName) ? child : block, skip, inner)
       }
     }
   }
-  walk(tree, tree, false)
+  walk(tree, tree, false, TEXT)
 
   const replacements = new Map<Text, ElementContent[]>()
-  for (const b of blocks) segmentBlock(b.texts, sentences, replacements)
+  for (const b of blocks) {
+    const { start, end } = b.el.position ?? {}
+    const source = start?.offset != null && end?.offset != null ? ([start.offset, end.offset] as [number, number]) : undefined
+    segmentBlock(b.texts, b.kinds, sentences, replacements, source)
+  }
   replaceTexts(tree, replacements)
   return sentences
 }
 
 function markSkip(el: Element): boolean {
-  const text = toText(el).trim()
-  const skip = SKIP.has(el.tagName) || (el.tagName === "a" && /^(https?:\/\/|www\.)/.test(text))
-  if (!skip) return false
+  if (!SKIP.has(el.tagName)) return false
   el.properties.className = [...classes(el), "skip"]
-  if (el.tagName === "pre") {
-    const code = el.children.find((c): c is Element => c.type === "element" && c.tagName === "code")
-    const lang = code && classes(code).map(String).find(c => c.startsWith("language-"))?.slice(9)
-    el.properties.dataLabel = lang ? `${lang} · skipped` : "code · skipped"
-  }
   return true
 }
 
 const classes = (el: Element) => (Array.isArray(el.properties.className) ? el.properties.className : [])
-const toText = (n: ElementContent | Parent): string =>
-  n.type === "text" ? n.value : "children" in n ? n.children.map(c => toText(c as ElementContent)).join("") : ""
 
-function segmentBlock(texts: Text[], sentences: Sentence[], out: Map<Text, ElementContent[]>) {
+function segmentBlock(texts: Text[], kinds: Kind[], sentences: Sentence[], out: Map<Text, ElementContent[]>, source?: [number, number]) {
   let full = ""
-  const ranges = texts.map(t => {
+  const charKinds: Kind[] = []
+  const ranges = texts.map((t, ti) => {
     const start = full.length
     full += t.value
+    for (let c = 0; c < t.value.length; c++) charKinds.push(kinds[ti])
     return [start, full.length] as const
   })
   const local = splitSentences(full).map(([s, e], i) => {
     const words: [number, number][] = []
     for (const m of full.slice(s, e).matchAll(/\S+/g)) words.push([s + m.index, s + m.index + m[0].length])
-    sentences.push({ text: full.slice(s, e).replace(/\s+/g, " ").trim(), wordCount: words.length, newBlock: i === 0 })
+    const pieces = piecesOf(full, charKinds, s, e)
+    sentences.push({ text: pieces.map(p => p.text).join(""), pieces, wordCount: words.length, newBlock: i === 0, source })
     return { index: sentences.length - 1, range: [s, e] as const, words }
   })
   if (!local.length) return
@@ -97,6 +106,22 @@ function segmentBlock(texts: Text[], sentences: Sentence[], out: Map<Text, Eleme
   })
 }
 
+// A sentence's text, trimmed with each whitespace run cut to one space, as runs of the same kind.
+function piecesOf(full: string, charKinds: Kind[], s: number, e: number): Piece[] {
+  while (s < e && /\s/.test(full[s])) s++
+  while (e > s && /\s/.test(full[e - 1])) e--
+  const pieces: Piece[] = []
+  for (let c = s; c < e; c++) {
+    const space = /\s/.test(full[c])
+    if (space && /\s/.test(full[c - 1])) continue
+    const kind = charKinds[c]
+    const last = pieces.at(-1)
+    if (last && last.type === kind.type && last.href === kind.href) last.text += space ? " " : full[c]
+    else pieces.push({ ...kind, text: space ? " " : full[c] })
+  }
+  return pieces
+}
+
 function replaceTexts(node: Parent, map: Map<Text, ElementContent[]>) {
   const children: (typeof node.children)[number][] = []
   for (const c of node.children) {
@@ -109,12 +134,14 @@ function replaceTexts(node: Parent, map: Map<Text, ElementContent[]>) {
   node.children = children as typeof node.children
 }
 
-// Sentence ranges in a block: trimmed, rejoined after abbreviations, long ones cut.
+// Sentence ranges in a block: trimmed, rejoined after abbreviations and mid-word breaks, long ones cut.
 function splitSentences(text: string): [number, number][] {
   const raw: [number, number][] = []
   for (const { index, segment } of new Intl.Segmenter("en", { granularity: "sentence" }).segment(text)) {
     const prev = raw.at(-1)
-    if (prev && ABBREVIATION.test(text.slice(prev[0], prev[1]).trimEnd())) prev[1] = index + segment.length
+    // Rejoined: after an abbreviation, and inside a word, such as the "?" of a link.
+    const midWord = index > 0 && !/\s/.test(text[index - 1])
+    if (prev && (midWord || ABBREVIATION.test(text.slice(prev[0], prev[1]).trimEnd()))) prev[1] = index + segment.length
     else raw.push([index, index + segment.length])
   }
   const out: [number, number][] = []
@@ -126,11 +153,17 @@ function splitSentences(text: string): [number, number][] {
       const window = text.slice(s, s + MAX_SENTENCE)
       let cut = Math.max(window.lastIndexOf("; "), window.lastIndexOf(": "), window.lastIndexOf(", "))
       if (cut < MAX_SENTENCE / 3) cut = window.lastIndexOf(" ")
-      out.push([s, s + cut + 1])
-      s += cut + 1
-      while (/\s/.test(text[s])) s++
+      // One word longer than the limit, such as a long link: it ends the piece, whole.
+      let end = s + cut + 1
+      if (cut <= 0) {
+        const space = text.indexOf(" ", s + MAX_SENTENCE)
+        end = space < 0 || space >= e ? e : space
+      }
+      out.push([s, end])
+      s = end
+      while (s < e && /\s/.test(text[s])) s++
     }
-    out.push([s, e])
+    if (s < e) out.push([s, e])
   }
   return out
 }

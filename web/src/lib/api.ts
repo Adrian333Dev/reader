@@ -51,5 +51,14 @@ export const api = {
   saveSettings: (body: Settings) => call<Settings>("/api/settings", "PATCH", body),
 }
 
-export const synth = (text: string, voice: string, signal?: AbortSignal) =>
-  call<Synthesis>("/api/synth", "POST", { text, voice }, signal)
+// A sentence's parts in order, joining back into its text: plain text, inline code, or a link. Mirrors server/spoken.ts.
+export type Piece = { type: "text" | "code" | "link"; text: string; href?: string }
+
+export const synth = (text: string, voice: string, signal?: AbortSignal, pieces?: Piece[]) =>
+  call<Synthesis>("/api/synth", "POST", { text, voice, pieces }, signal)
+
+// The reader's right-click "Flag…" (rd-15). Mirrors server/feedback.ts.
+export const saveFlag = (body: {
+  word: string; text: string; pieces: Piece[]; before?: string; after?: string; markdown?: string
+  doc: { id: string; title: string }; voice: string; speed: number; note: string
+}) => call<object>("/api/flags", "POST", body)

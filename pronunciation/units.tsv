@@ -1,0 +1,23 @@
+unit	singular	plural
+ms	millisecond	milliseconds
+s	second	seconds
+min	minute	minutes
+h	hour	hours
+mm	millimeter	millimeters
+cm	centimeter	centimeters
+m	meter	meters
+km	kilometer	kilometers
+km/h	kilometer per hour	kilometers per hour
+mph	mile per hour	miles per hour
+g	gram	grams
+kg	kilogram	kilograms
+KB	kilobyte	kilobytes
+MB	megabyte	megabytes
+GB	gigabyte	gigabytes
+TB	terabyte	terabytes
+Hz	hertz	hertz
+kHz	kilohertz	kilohertz
+MHz	megahertz	megahertz
+GHz	gigahertz	gigahertz
+px	pixel	pixels
+fps	frame per second	frames per second

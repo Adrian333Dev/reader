@@ -18,6 +18,8 @@ export class Player {
   index = 0
   state: PlayState = "paused"
   onPosition: (sentence: number, word: number) => void = () => {}
+  // A method, not an assignment, for the reader view: React's compiler rejects assigning a prop's field after render.
+  setOnPosition(fn: (sentence: number, word: number) => void) { this.onPosition = fn }
   onError: (error: Error) => void = () => {}
 
   // Speech rate at 1×, learned from every sentence made; 15 characters a second until the first arrives.
@@ -139,7 +141,7 @@ export class Player {
     audio.playbackRate = this.speed
     await new Promise(r => audio.addEventListener("loadedmetadata", r, { once: true }))
     if (run !== this.run) return
-    const startMs = word > 0 && clip.times[word] ? clip.times[word].start - 60 : (clip.times[0]?.start ?? 0) - LEAD_MS
+    const startMs = word > 0 && clip.times[word] ? wordStart(clip.times, word) : (clip.times[0]?.start ?? 0) - LEAD_MS
     audio.currentTime = Math.max(0, startMs) / 1000
     this.current = { index, audio, clip }
     await audio.play()
@@ -181,8 +183,8 @@ export class Player {
     const key = `${this.voice}|${index}`
     let p = this.cache.get(key)
     if (!p) {
-      const text = this.sentences[index].text
-      p = synth(text, this.voice, this.aborter.signal).then(r => {
+      const { text, pieces } = this.sentences[index]
+      p = synth(text, this.voice, this.aborter.signal, pieces).then(r => {
         const bytes = Uint8Array.from(atob(r.audio), c => c.charCodeAt(0))
         // Played from LEAD_MS before the first word to the end of the audio, trailing silence included.
         const ms = Math.max(0, wavMs(bytes) - Math.max(0, (r.wtimes[0] ?? 0) - LEAD_MS))
@@ -214,7 +216,15 @@ function wavMs(bytes: Uint8Array) {
   return byteRate ? ((bytes.length - 44) / byteRate) * 1000 : 0
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")
+// Where a clicked word starts playing: LEAD_MS early, since HeadTTS reports a word ~40 ms after its first sound and the
+// browser's start-up eats a little more (a path lost its "bu"), but never before the middle of the word before it.
+function wordStart(times: Clip["times"], word: number) {
+  const prev = times[word - 1]
+  return Math.max(times[word].start - LEAD_MS, prev ? (prev.start + prev.end) / 2 : 0)
+}
+
+// A word made only of punctuation, such as "(," in inline code read by name, keeps its marks so it can match too.
+const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "") || s.replace(/\s/g, "")
 
 // Page words → { start, end } in ms, matched in order to the engine's words after stripping punctuation.
 export function align(pageWords: string[], { words, wtimes, wdurations }: Synthesis) {

@@ -5,6 +5,10 @@ export type Voice = { id: string; name: string; gender: 'male' | 'female'; accen
 // One sentence of speech: WAV audio plus each word's start and length in ms.
 export type Synthesis = { audio: string; words: string[]; wtimes: number[]; wdurations: number[] };
 
+// What a provider speaks: a sentence, or one item per word. A phonetic item gives the sounds, with the page word as subtitle.
+export type SpeechItem = string | { type: 'phonetic'; value: string; subtitles: string };
+export type SpeechInput = string | SpeechItem[];
+
 export type ProviderStatus = 'starting' | 'ready' | 'down';
 
 export type SpeechProvider = {
@@ -14,5 +18,5 @@ export type SpeechProvider = {
   start(): void;
   status(): ProviderStatus;
   voices(): Voice[];
-  synthesize(text: string, voice: string): Promise<Synthesis>;
+  synthesize(input: SpeechInput, voice: string): Promise<Synthesis>;
 };

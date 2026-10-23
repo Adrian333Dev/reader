@@ -1,0 +1,9 @@
+{
+  "amazon.com": { "name": "Amazon" },
+  "bing.com": { "name": "Bing", "query": "q" },
+  "duckduckgo.com": { "name": "DuckDuckGo", "query": "q" },
+  "github.com": { "name": "GitHub", "drop": ["blob", "tree", "raw", "main", "master", "refs", "heads"] },
+  "google.com": { "name": "Google", "query": "q" },
+  "reddit.com": { "name": "Reddit", "drop": ["r", "comments"] },
+  "youtube.com": { "name": "YouTube", "query": "search_query", "label": "YouTube search", "drop": ["watch"] }
+}

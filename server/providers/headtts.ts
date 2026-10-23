@@ -2,7 +2,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ProviderStatus, SpeechProvider, Synthesis } from './types.ts';
+import type { ProviderStatus, SpeechInput, SpeechProvider, Synthesis } from './types.ts';
 
 const URL = 'http://localhost:8882';
 
@@ -60,11 +60,11 @@ export function createHeadTTS(root: string): SpeechProvider {
     }
   }
 
-  async function synthesize(text: string, voice: string): Promise<Synthesis> {
+  async function synthesize(input: SpeechInput, voice: string): Promise<Synthesis> {
     const res = await fetch(`${URL}/v1/synthesize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: text, voice, language: 'en-us', speed: 1, audioEncoding: 'wav' }),
+      body: JSON.stringify({ input, voice, language: 'en-us', speed: 1, audioEncoding: 'wav' }),
     });
     if (!res.ok) throw new Error(`HeadTTS HTTP ${res.status}: ${await res.text()}`);
     const { audio, words, wtimes, wdurations } = await res.json();

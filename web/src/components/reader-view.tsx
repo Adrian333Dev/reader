@@ -7,6 +7,7 @@ import { renderDocument } from "@/reading/render"
 import { Highlighter } from "@/reading/highlighter"
 import type { Player } from "@/reading/player"
 import { Button } from "@/components/ui/button"
+import { FlagMenu } from "@/components/flag-menu"
 
 const USER_SCROLL_HOLD_MS = 4000 // no auto-scroll this long after the user scrolls
 
@@ -47,13 +48,13 @@ export function ReaderView({ doc, player, onPosition }: Props) {
       if (r.top < b.top + 40 || r.bottom > b.bottom - 130) span.scrollIntoView({ block: "center", behavior: "smooth" })
     }
     let last = -1
-    player.onPosition = (s, w) => {
+    player.setOnPosition((s, w) => {
       h.set(s, w)
       if (s === last) return
       last = s
       follow(s)
       onPositionRef.current(s, sentences.length)
-    }
+    })
     player.load(sentences, h.pageWords(), doc.position)
     h.set(player.index, -1)
     h.firstSpan(player.index)?.scrollIntoView({ block: "center" })
@@ -71,7 +72,7 @@ export function ReaderView({ doc, player, onPosition }: Props) {
     return () => {
       unsubscribe()
       player.stop()
-      player.onPosition = () => {}
+      player.setOnPosition(() => {})
       h.destroy()
     }
     // doc.position is read once, when the document opens.
@@ -146,6 +147,7 @@ export function ReaderView({ doc, player, onPosition }: Props) {
       onTouchMove={userScrolled}
       onPointerDown={e => e.target === e.currentTarget && userScrolled()}
     >
+      <FlagMenu doc={doc} player={player}>
       <div ref={containerRef} className="relative mx-auto max-w-[808px] px-6 pt-10 pb-[40vh]">
         <article ref={articleRef} className="markdown-body reader-body relative z-10" onClick={onClick} onDoubleClick={onDoubleClick}>
           {content}
@@ -164,6 +166,7 @@ export function ReaderView({ doc, player, onPosition }: Props) {
           </Button>
         )}
       </div>
+      </FlagMenu>
     </div>
   )
 }

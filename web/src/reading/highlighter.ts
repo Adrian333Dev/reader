@@ -17,8 +17,10 @@ export class Highlighter {
   // container: positioned element holding the article; boxes are placed in its coordinates.
   constructor(container: HTMLElement, article: HTMLElement) {
     this.container = container
+    // The layers are the container's first children, and their boxes move on every redraw. Chrome would anchor the
+    // scroll on them and give up, so the page jumped when the window's width changed; overflow-anchor keeps them out.
     for (const l of [this.sentenceLayer, this.wordLayer]) {
-      l.className = "pointer-events-none absolute inset-0"
+      l.className = "pointer-events-none absolute inset-0 [overflow-anchor:none]"
       l.setAttribute("aria-hidden", "true")
       container.prepend(l)
     }

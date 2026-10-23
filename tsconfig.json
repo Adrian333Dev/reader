@@ -1,0 +1,17 @@
+{
+  // The server and scripts: Node 24 runs these .ts files directly, stripping the types. Type checking only, never output.
+  // The page has its own setup in web/.
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["server", "scripts"]
+}

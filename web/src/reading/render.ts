@@ -8,15 +8,19 @@ import remarkParse from "remark-parse"
 import remarkGfm from "remark-gfm"
 import remarkRehype from "remark-rehype"
 import { segmentTree, type Sentence } from "./segment"
+import { CodeBlock } from "./code-block"
 import type { DocFormat } from "@/lib/api"
 
 // remark-rehype drops raw HTML, so pasted pages cannot run scripts.
 const markdown = unified().use(remarkParse).use(remarkGfm).use(remarkRehype)
 
 export function renderDocument(text: string, format: DocFormat): { content: ReactNode; sentences: Sentence[] } {
-  const tree = format === "txt" ? plainText(text) : (markdown.runSync(markdown.parse(frontMatterAsCode(text))) as Root)
-  const sentences = segmentTree(tree)
-  return { content: toJsxRuntime(tree, { Fragment, jsx, jsxs }), sentences }
+  const parsed = format === "txt" ? text : frontMatterAsCode(text)
+  const tree = format === "txt" ? plainText(text) : (markdown.runSync(markdown.parse(parsed)) as Root)
+  // Front matter grows by 4 characters as a code block, so every block after it sits 4 later than in the document.
+  const shift = parsed.length - text.length
+  const sentences = segmentTree(tree).map(s => (s.source ? { ...s, source: [s.source[0] - shift, s.source[1] - shift] as [number, number] } : s))
+  return { content: toJsxRuntime(tree, { Fragment, jsx, jsxs, passNode: true, components: { pre: CodeBlock } }), sentences }
 }
 
 // Front matter shows as a skipped yaml block.

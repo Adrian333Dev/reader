@@ -1,0 +1,10 @@
+{
+ "bos_id": 1,
+ "eos_id": 2,
+ "start_id": 1,
+ "unknown_id": 3,
+ "max_steps": 64,
+ "graphemes": "____AIOWYbdfhijklmnpstuvwz'-.BCDEFGHJKLMNPQRSTUVXZacegoqrxy",
+ "phonemes": "____AIOWYbdfhijklmnpstuvwzæðŋɑɔəɛɜɡɪɹɾʃʊʌʒʔʤʧˈˌθᵊᵻ",
+ "source": "PeterReid/graphemes_to_phonemes_en_us (Apache-2.0); misaki us_gold/us_silver (Apache-2.0)"
+}

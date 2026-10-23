@@ -3,15 +3,24 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 import { createHeadTTS } from './providers/headtts.ts';
+import { createPronunciation } from './pronunciation.ts';
+import type { SpeechInput } from './providers/types.ts';
 import { createSpeech } from './speech.ts';
 import { createStore } from './store.ts';
+import { createFeedback } from './feedback.ts';
 
 const root = new URL('..', import.meta.url).pathname;
 const dist = join(root, 'web/dist');
 const PORT = Number(process.env.PORT) || 4400;
 
 const provider = createHeadTTS(root);
-const speech = createSpeech(root, provider);
+// Without the pronunciation data, sentences go as plain text, as before rd-12.
+const pronunciation = await createPronunciation(root).catch(e => {
+  console.error('[pronunciation] not loaded, reading plain text:', e);
+  return { prepare: (text: string): SpeechInput => text };
+});
+const speech = createSpeech(root, provider, pronunciation.prepare);
+const feedback = createFeedback(root, pronunciation.prepare);
 const store = createStore(root);
 
 const TYPES: Record<string, string> = {
@@ -46,9 +55,22 @@ async function api(req: IncomingMessage, res: ServerResponse, path: string) {
   if (m && req.method === 'PATCH') return send(res, 200, await store.update(m[1], await readBody(req)));
   if (m && req.method === 'DELETE') { await store.remove(m[1]); return send(res, 204, ''); }
   if (path === '/api/synth' && req.method === 'POST') {
-    const { text, voice } = await readBody(req);
-    if (!text || text.length > 500) return send(res, 400, { error: 'text must be 1 to 500 characters' });
-    return send(res, 200, await speech.synthesize(text, voice || provider.defaultVoice));
+    const { text, voice, pieces } = await readBody(req);
+    // A long link can make one sentence past HeadTTS's 500 characters; it is said short, as an array input with no cap.
+    if (!text || text.length > 2000) return send(res, 400, { error: 'text must be 1 to 2000 characters' });
+    // pathStyle: "innermost" (default) or "slashes", how a path is read (rd-7). No control in the page yet.
+    const { pathStyle } = await store.getSettings();
+    const valid = Array.isArray(pieces) && pieces.every(p => typeof p?.text === 'string' && ['text', 'code', 'link'].includes(p.type));
+    const style = pathStyle === 'slashes' ? 'slashes' : 'innermost';
+    return send(res, 200, await speech.synthesize(text, voice || provider.defaultVoice, valid ? pieces : undefined, style));
+  }
+  // The reader's right-click "Flag…" (rd-15): a flag on a word or selection.
+  if (path === '/api/flags' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (typeof body.word !== 'string' || typeof body.text !== 'string') return send(res, 400, { error: 'word and text are required' });
+    const { pathStyle } = await store.getSettings();
+    await feedback.saveFlag(body, pathStyle === 'slashes' ? 'slashes' : 'innermost');
+    return send(res, 201, {});
   }
   send(res, 404, { error: 'not found' });
 }

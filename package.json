@@ -7,15 +7,22 @@
   "scripts": {
     "start": "pnpm --filter web build && node server/main.ts",
     "service": "node scripts/service.ts",
+    "test": "node --test server/*.test.ts",
+    "flags": "node scripts/flags.ts",
+    "typecheck": "tsc -p . && pnpm --filter web typecheck",
     "dev": "concurrently -n server,web \"node --watch server/main.ts\" \"pnpm --filter web dev\""
   },
   "dependencies": {
     "@huggingface/transformers": "^4.0.0",
     "@met4citizen/headtts": "^1.3.0",
+    "compromise": "^14.19.0",
+    "onnxruntime-node": "1.30.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
     "concurrently": "^10.0.6",
-    "playwright": "^1.64.1"
+    "playwright": "^1.64.1",
+    "typescript": "~6.0.3"
   }
 }

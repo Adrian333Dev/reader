@@ -192,19 +192,37 @@
 .reader-body ol { list-style: decimal; }
 .reader-body ul ul { list-style: circle; }
 
-/* Skipped blocks: shown dimmed with a label, never read. */
-.reader-body pre.skip {
+/* Code blocks (code-block.tsx): GitHub's spacing, never read. Long lines wrap, their extra rows indented.
+   Shiki gives each token a light colour and --shiki-dark. */
+.reader-body pre.code-block {
   position: relative;
-  opacity: 0.6;
-  font-size: 13px;
-  line-height: 1.5;
+  padding: 16px;
+  font-size: 15px;
+  line-height: 1.45;
+  border-radius: 6px;
+  white-space: normal;
+  overflow: visible;
 }
-.reader-body pre.skip::before {
-  content: attr(data-label);
+.reader-body pre.code-block > code { display: block; white-space: normal; }
+.code-block .code-line {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
+/* github-markdown-css darkens the block by the system's colour scheme, not by .dark; the tokens follow the same rule. */
+@media (prefers-color-scheme: dark) {
+  .code-block .code-line span { color: var(--shiki-dark) !important; }
+}
+/* The copy icon sits over the code's top-right corner, seen only while the pointer is on the block. */
+.code-block .code-copy {
   position: absolute;
-  top: 4px;
+  top: 8px;
   right: 8px;
-  font: 500 11px var(--font-sans);
   color: var(--muted-foreground);
+  opacity: 0;
+  transition: opacity 120ms;
 }
+.code-block:hover .code-copy, .code-block .code-copy:focus-visible { opacity: 1; }
 .reader-body img.skip { opacity: 0.85; }

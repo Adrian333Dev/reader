@@ -1,0 +1,12 @@
+word	action	value	condition
+src	say	S R C	
+US	say	U S	
+IT	say	I T	
+read	sound	ɹˈɛd	after:is,are,was,were,be,been,being,has,have,had,i've,you've,we've,they've,already,just,never,ever
+pnpm	say	P N P M	
+inline	sound	ˈɪnlˌIn	
+README	say	read me	
+combinator	sound	kˈɑmbənˌAɾəɹ	
+json	say	jay son	
+jsonl	say	jay son L	
+ui	say	U I	
