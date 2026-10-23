@@ -6,7 +6,7 @@ import { createHeadTTS } from './providers/headtts.ts';
 import { createPronunciation } from './pronunciation.ts';
 import type { SpeechInput } from './providers/types.ts';
 import { createSpeech } from './speech.ts';
-import { createStore } from './store.ts';
+import { createStore, isWorkspaceName } from './store.ts';
 import { createFeedback } from './feedback.ts';
 
 const root = new URL('..', import.meta.url).pathname;
@@ -22,6 +22,14 @@ const pronunciation = await createPronunciation(root).catch(e => {
 const speech = createSpeech(root, provider, pronunciation.prepare);
 const feedback = createFeedback(root, pronunciation.prepare);
 const store = createStore(root);
+
+// Workspaces idle for 7 days are deleted at start and daily, as the sentence cache is.
+const cleanWorkspaces = () => store.cleanupWorkspaces().then(
+  n => { if (n) console.log(`[workspaces] deleted ${n} unused for 7 days`); },
+  e => console.error('[workspaces] cleanup failed:', e),
+);
+cleanWorkspaces();
+setInterval(cleanWorkspaces, 24 * 60 * 60 * 1000).unref();
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml',
@@ -39,7 +47,7 @@ async function readBody(req: IncomingMessage) {
   return s ? JSON.parse(s) : {};
 }
 
-async function api(req: IncomingMessage, res: ServerResponse, path: string) {
+async function api(req: IncomingMessage, res: ServerResponse, path: string, query: URLSearchParams) {
   const m = path.match(/^\/api\/docs\/([\w-]+)$/);
   if (path === '/api/status') return send(res, 200, { tts: provider.status() });
   if (path === '/api/voices') return send(res, 200, { voices: provider.voices(), default: provider.defaultVoice });
@@ -47,8 +55,18 @@ async function api(req: IncomingMessage, res: ServerResponse, path: string) {
   if (path === '/api/settings' && req.method === 'PATCH') return send(res, 200, await store.updateSettings(await readBody(req)));
   if (path === '/api/groups' && req.method === 'GET') return send(res, 200, await store.getGroups());
   if (path === '/api/groups' && req.method === 'PUT') return send(res, 200, await store.saveGroups(await readBody(req)));
-  if (path === '/api/tabs' && req.method === 'GET') return send(res, 200, await store.getTabs());
-  if (path === '/api/tabs' && req.method === 'PUT') return send(res, 200, await store.saveTabs(await readBody(req)));
+  // A window's tabs (rd-37): claim gives a bare address its workspace, ping says a window is open, release says it closed.
+  const workspace = path.match(/^\/api\/workspace(?:\/(claim|ping|release))?$/);
+  if (workspace) {
+    const action = workspace[1];
+    if (action === 'claim' && req.method === 'POST') return send(res, 200, { name: await store.claimWorkspace() });
+    const name = query.get('w') ?? '';
+    if (!isWorkspaceName(name)) return send(res, 400, { error: 'a workspace name is 1 to 40 letters, digits, - or _' });
+    if (action === 'ping' && req.method === 'POST') { store.pingWorkspace(name); return send(res, 204, ''); }
+    if (action === 'release' && req.method === 'POST') { store.releaseWorkspace(name); return send(res, 204, ''); }
+    if (!action && req.method === 'GET') return send(res, 200, await store.getWorkspace(name));
+    if (!action && req.method === 'PUT') return send(res, 200, await store.saveWorkspace(name, await readBody(req)));
+  }
   if (path === '/api/docs' && req.method === 'GET') return send(res, 200, await store.list());
   if (path === '/api/docs' && req.method === 'POST') return send(res, 201, await store.create(await readBody(req)));
   if (m && req.method === 'GET') return send(res, 200, await store.get(m[1]));
@@ -86,9 +104,10 @@ async function page(res: ServerResponse, path: string) {
 }
 
 createServer(async (req, res) => {
-  const path = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+  const url = new URL(req.url ?? '/', 'http://x');
+  const path = decodeURIComponent(url.pathname);
   try {
-    if (path.startsWith('/api/')) return await api(req, res, path);
+    if (path.startsWith('/api/')) return await api(req, res, path, url.searchParams);
     await page(res, path === '/' ? '/index.html' : path);
   } catch (e) {
     const err = e as NodeJS.ErrnoException;

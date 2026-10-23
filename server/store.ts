@@ -1,5 +1,5 @@
-// Documents as JSON files in data/docs/, settings in data/settings.json.
-import { readFile, writeFile, readdir, unlink, mkdir } from 'node:fs/promises';
+// Documents as JSON files in data/docs/, settings in data/settings.json, each window's tabs in data/workspaces/.
+import { readFile, writeFile, readdir, unlink, mkdir, stat, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
@@ -28,13 +28,28 @@ export type Group = { id: string; name: string; color: string; rank: number; col
 // A tab is one document: a paste replaces it. `name` null follows the document's title.
 export type Tab = { id: string; name: string | null; docId: string | null };
 
+// A workspace is one window's tabs in order, and the tab it shows. The window's address names it (?w=<name>); a bare
+// address is given one (claimWorkspace). Both fields are null until the first save, so the page opens one empty tab.
+export type Workspace = { tabs: Tab[] | null; activeTab: string | null };
+
+// The name becomes a file name, so only these are accepted.
+export const isWorkspaceName = (name: string) => /^[a-z0-9][a-z0-9_-]{0,39}$/i.test(name);
+
+// A workspace nobody opened, saved or read in for this long is deleted with its documents.
+export const WORKSPACE_IDLE_MS = 7 * 24 * 60 * 60 * 1000;
+
+// A workspace is open in a window while that page has pinged within this time. Pages ping every 20 s, and a hidden
+// tab's timers can slow to once a minute, so it is generous. Kept in memory: a server restart frees every workspace.
+export const WORKSPACE_OPEN_MS = 2 * 60 * 1000;
+
 // READER_DATA moves documents, tabs, settings and groups elsewhere, so a test server never writes the user's own.
 export function createStore(root: string) {
   const data = process.env.READER_DATA || join(root, 'data');
   const dir = join(data, 'docs');
   const settingsFile = join(data, 'settings.json');
   const groupsFile = join(data, 'groups.json');
-  const tabsFile = join(data, 'tabs.json');
+  const workspaceDir = join(data, 'workspaces');
+  const workspaceFile = (name: string) => join(workspaceDir, `${name}.json`);
   const path = (id: string) => join(dir, `${id.replace(/[^a-z0-9-]/gi, '')}.json`);
   const meta = ({ text: _text, ...rest }: Doc): DocMeta => rest;
 
@@ -90,17 +105,93 @@ export function createStore(root: string) {
     return groups;
   }
 
-  // null until the first save, so the page knows to open one empty tab.
-  async function getTabs(): Promise<Tab[] | null> {
-    try { return JSON.parse(await readFile(tabsFile, 'utf8')); } catch { return null; }
+  async function readWorkspace(name: string): Promise<Workspace> {
+    try {
+      const saved = JSON.parse(await readFile(workspaceFile(name), 'utf8'));
+      return { tabs: saved.tabs ?? null, activeTab: saved.activeTab ?? null };
+    } catch {
+      return { tabs: null, activeTab: null };
+    }
   }
 
-  // Only the known fields are kept, so the colour older tabs carried drops on the next save.
-  async function saveTabs(tabs: Tab[]) {
-    const clean = tabs.map(({ id, name, docId }) => ({ id, name, docId }));
-    await mkdir(data, { recursive: true });
-    await writeFile(tabsFile, JSON.stringify(clean, null, 2));
-    return clean;
+  // Which workspaces have a window open: the time each page last said so.
+  const pinged = new Map<string, number>();
+  const isOpen = (name: string, now: number) => now - (pinged.get(name) ?? -Infinity) < WORKSPACE_OPEN_MS;
+  const pingWorkspace = (name: string, now = Date.now()) => { pinged.set(name, now); };
+  const releaseWorkspace = (name: string) => { pinged.delete(name); };
+
+  // Opening a workspace counts as using it, which keeps it from expiring.
+  async function getWorkspace(name: string, now = Date.now()) {
+    pingWorkspace(name, now);
+    const workspace = await readWorkspace(name);
+    await utimes(workspaceFile(name), new Date(now), new Date(now)).catch(() => {});
+    return workspace;
+  }
+
+  // Claims and saves run one after the other. The page sends the tabs and the current tab in quick succession and each
+  // save reads the file first, so two at once would lose one; two windows opening at once would claim the same one.
+  let queue: Promise<unknown> = Promise.resolve();
+  function serial<T>(job: () => Promise<T>) {
+    const run = queue.then(job);
+    queue = run.catch(() => {});
+    return run;
+  }
+
+  // The name for a window that has none: the workspace used most recently that no window has open, so a closed window
+  // comes back as it was, else a new one.
+  function claimWorkspace(now = Date.now()) {
+    return serial(async () => {
+      const files = (await readdir(workspaceDir).catch(() => [])).filter(f => f.endsWith('.json'));
+      const names = files.map(f => f.replace(/\.json$/, '')).filter(isWorkspaceName);
+      let best: { name: string; time: number } | undefined;
+      for (const name of names.filter(n => !isOpen(n, now))) {
+        const { mtimeMs } = await stat(workspaceFile(name));
+        if (!best || mtimeMs > best.time) best = { name, time: mtimeMs };
+      }
+      let name = best?.name ?? randomBytes(3).toString('hex');
+      // A new name must not be one of the workspaces already open.
+      while (!best && names.includes(name)) name = randomBytes(3).toString('hex');
+      pingWorkspace(name, now);
+      return name;
+    });
+  }
+
+  // Only the known tab fields are kept, so the colour older tabs carried drops on the next save.
+  function saveWorkspace(name: string, changes: { tabs?: Tab[]; activeTab?: string | null }) {
+    return serial(async () => {
+      const current = await readWorkspace(name);
+      const next: Workspace = {
+        tabs: Array.isArray(changes.tabs) ? changes.tabs.map(({ id, name, docId }) => ({ id, name, docId })) : current.tabs,
+        activeTab: changes.activeTab !== undefined ? changes.activeTab : current.activeTab,
+      };
+      await mkdir(workspaceDir, { recursive: true });
+      await writeFile(workspaceFile(name), JSON.stringify(next, null, 2));
+      return next;
+    });
+  }
+
+  // Deletes the workspaces idle for WORKSPACE_IDLE_MS, with the documents they own: the ones their tabs show, and
+  // the ones once pasted into their tabs (a tab's undo list). A workspace's last use is the newest time among its
+  // file (set by every open and save) and its documents (set when a reading position saves).
+  async function cleanupWorkspaces(now = Date.now()) {
+    const docs = await list();
+    let deleted = 0;
+    for (const file of await readdir(workspaceDir).catch(() => [])) {
+      const name = file.replace(/\.json$/, '');
+      // A workspace with a window open is in use, however long its tabs went unchanged.
+      if (!file.endsWith('.json') || !isWorkspaceName(name) || isOpen(name, now)) continue;
+      const { tabs } = await readWorkspace(name);
+      const tabIds = new Set((tabs ?? []).map(t => t.id));
+      const shown = new Set((tabs ?? []).map(t => t.docId));
+      const owned = docs.filter(d => shown.has(d.id) || (d.tab !== null && tabIds.has(d.tab)));
+      let lastUse = (await stat(workspaceFile(name))).mtimeMs;
+      for (const d of owned) lastUse = Math.max(lastUse, (await stat(path(d.id)).catch(() => ({ mtimeMs: 0 }))).mtimeMs);
+      if (now - lastUse <= WORKSPACE_IDLE_MS) continue;
+      for (const d of owned) await unlink(path(d.id)).catch(() => {});
+      await unlink(workspaceFile(name));
+      deleted++;
+    }
+    return deleted;
   }
 
   async function getSettings(): Promise<Record<string, unknown>> {
@@ -114,7 +205,7 @@ export function createStore(root: string) {
     return settings;
   }
 
-  return { list, get, create, update, remove, getSettings, updateSettings, getGroups, saveGroups, getTabs, saveTabs };
+  return { list, get, create, update, remove, getSettings, updateSettings, getGroups, saveGroups, getWorkspace, saveWorkspace, claimWorkspace, pingWorkspace, releaseWorkspace, cleanupWorkspaces };
 }
 
 // Documents saved before groups, tabs or `seen` existed; one already started counts as seen. The first tabs take

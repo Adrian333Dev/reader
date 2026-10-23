@@ -32,7 +32,11 @@ One line per fix confirmed in an investigation: a sentence and the sounds its wo
 
 The instructions for an investigation, written to stand alone: the causes, the file formats, Kokoro's sound alphabet and the lookup order. Any model can follow them, a free external one included. `pnpm flags bundle` prints this file plus the current files, the open flags and the most frequent unknown words, to paste into a model that has no access to the repo. A model with tools runs the Claude Code command `/investigate-flags` (`.claude/commands/investigate-flags.md`) instead.
 
-`pnpm flags` (`scripts/flags.ts`) is the tool for both. `list` shows the open flags, `unknown` the words nothing knew, `replay <id> --fix "…"` plays the flag's saved audio and then the sentence made again with the proposed fix, and `close <id>` writes the confirmed fix and its test line and closes the flag. A closed flag is a line in `data/pronunciation/flags-closed.jsonl`; `flags.jsonl` is never edited.
+`pnpm flags` (`scripts/flags.ts`) is the tool for both. `list` shows the open flags, `unknown` the words nothing knew (those with a fix or marked reviewed left out), `review <word> …` marks unknown words whose guess is right, `replay <id> --fix "…"` plays the flag's saved audio and then the sentence made again with the proposed fix, and `close <id>` writes the confirmed fix and its test line and closes the flag. Closing moves the whole flag from `data/pronunciation/flags.jsonl`, which then holds open flags only, to `flags-closed.jsonl`, with its `outcome` (`fixed`, `ticket` or `nofault`), a `detail` note and the time closed.
+
+## data/pronunciation/
+
+The data that grows by use: `flags.jsonl` (open flags), `flags-closed.jsonl`, `unknown.jsonl` (every word the guesser had to guess, with its count, an example sentence and the first guess) and `reviewed.txt` (unknown words an investigation judged right, one per line). Unlike the rest of `data/`, this folder is tracked in git, so it syncs between machines through the repo (rd-19). The repo must stay private: a flag holds the text of the document being read. The flag files only gain lines, so `.gitattributes` merges them by keeping both sides' lines. `unknown.jsonl` has one line per word with a count, so two machines writing it between pulls can conflict.
 
 ## sites.json
 

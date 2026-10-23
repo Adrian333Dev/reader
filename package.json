@@ -10,7 +10,7 @@
     "test": "node --test server/*.test.ts",
     "flags": "node scripts/flags.ts",
     "typecheck": "tsc -p . && pnpm --filter web typecheck",
-    "dev": "concurrently -n server,web \"node --watch server/main.ts\" \"pnpm --filter web dev\""
+    "dev": "node scripts/dev-check.ts && concurrently -n server,web \"node --watch server/main.ts\" \"pnpm --filter web dev\""
   },
   "dependencies": {
     "@huggingface/transformers": "^4.0.0",

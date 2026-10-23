@@ -1,0 +1,4 @@
+# Flags only gain lines, so two machines' flags merge by keeping both sides' lines (rd-19).
+data/pronunciation/flags.jsonl merge=union
+data/pronunciation/flags-closed.jsonl merge=union
+data/pronunciation/reviewed.txt merge=union

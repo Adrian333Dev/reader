@@ -11,7 +11,7 @@ A flag is a failure report, never a word to fix. The flagged word shows a sympto
 1. The page cuts the document into sentences and labels each stretch as plain text, inline code or a link.
 2. **What to say.** Paths, links, units and punctuation in code become plain words:
    - A path reads innermost first: `src/components/ui/button.tsx` → "button dot T S X, in the U I folder, inside components, inside S R C".
-   - A link reads its site name plus the words in its address. Site exceptions live in `sites.json`.
+   - A link reads as "<site> link: <words>". The words come from the address parts between slashes. A part is read when it is one word of 3 or more letters, or a number of up to 4 digits. A part of several words joined by `-`, `_`, `+` or `.` is read word by word, without long numbers and IDs. Everything after `?` is dropped, except a site's search parameter. Read a link's `value` back into words, sound by sound, to see which address part each word came from. Site exceptions live in `sites.json`.
    - A unit right after a number reads as words: "150ms" → "one hundred fifty milliseconds". The units live in `units.tsv`.
 3. **How it sounds.** Each word becomes Kokoro sounds (the alphabet is below). The lookup order is below.
 4. Kokoro turns the sounds into audio. It never spells a word itself.
@@ -46,7 +46,7 @@ A fault can come from step 2 (wrong words) or step 3 (right words, wrong sounds)
 
 1. **A missing word.** The word reads wrong and its `value` came from the guesser or a split, or from a list with the wrong sound. Fix: a line in `fixes.tsv`. A number's unit that is missing → a line in `units.tsv`.
 2. **A wrong split.** A word with `-`, `_`, `.`, `/` or camelCase was cut into parts and one part is wrong, or the whole should not be cut. Find the part with the wrong sounds. Fix that part's word in `fixes.tsv` (fix `tts` once, never every word containing it). Fix the joined word only if it reads as one unit.
-3. **A link or path rule.** The spoken words in step 2 are wrong or too long (the `value` holds many words, or reads noise from the address). Fix: a line in `sites.json` for a site (spoken name, the search parameter, parts to drop). For one exact link, a `fixes.tsv` line keyed by the link's exact text.
+3. **A link or path rule.** The spoken words in step 2 are wrong or too long (the `value` holds many words, or reads noise from the address). Fix: a line in `sites.json` for a site (spoken name, the search parameter, parts to drop). `drop` matches a whole address part exactly, ignoring case: `"drop": ["dp"]` removes the part `dp`, and cannot remove half of a part. A `fixes.tsv` line keyed by the link's exact text suits a link that will never come again. A noise part that every link of the site carries (Amazon's `ref=sr_1_3`, a tracking part) is not one link's fault: it is cause 4, a ticket for a rule in the link reader.
 4. **A new kind of fault.** No file above can fix it, or the same fault would hit many words: every number, every word ending in `-ed`, every sentence with a certain mark. Do not propose a fix line. Propose a ticket: a short title, the evidence (the flag, `input` and what is wrong), and the rule that would fix the whole class.
 
 ## Choosing the fix
@@ -56,6 +56,7 @@ A fault can come from step 2 (wrong words) or step 3 (right words, wrong sounds)
 - **Keep a condition only when the same spelling has two readings.** `read` is "red" after "is", "have" and the like, "reed" otherwise.
 - **Two candidates when unsure.** Give a first choice and a second. The user plays both.
 - **A note that fits no cause** (for example "sounds weird") → say what you checked, and ask the user what they heard.
+- **A ticket needs evidence in the sounds**: a wrong, missing or noise sound you can point at. A guess about stress, rhythm or a pause is never a ticket. It is `Unresolved:`, with what the user should listen for.
 - **Skip a flag the app already reads right.** Say the `value` is correct and the sentence needs another look by ear. No fix.
 
 ## The fix file formats
@@ -169,6 +170,6 @@ Test:   {"text":"Use an inline scrollbar here.","word":"inline","phonemes":"ˈɪ
 - **Cause 4** → `Ticket:` with the title, the evidence and the rule. No `Fix`.
 - A flag you could not resolve → `Unresolved:` with what you checked and what the user should listen for.
 
-For the unknown words, list only the ones whose `guess` is wrong, most frequent first, each with its `Fix:` line and its `Test:` line. Add one line naming the words whose guess you judge right. Many unknown words that share a fault (for example, every word with `'s` at its end) are one ticket, never one line each.
+For the unknown words, list only the ones whose `guess` is wrong, most frequent first, each with its `Fix:` line and its `Test:` line. Add one line naming the words whose guess you judge right, and the command that marks them so they leave the list: `pnpm flags review word1 word2`. Many unknown words that share a fault (for example, every word with `'s` at its end) are one ticket, never one line each.
 
 Finish with the lines to paste, grouped by file: `fixes.tsv` lines, `units.tsv` lines, `sites.json` entries, `checks.jsonl` lines. After they are applied, the user runs `pnpm test` and plays each fixed sentence.

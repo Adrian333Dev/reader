@@ -5,6 +5,7 @@ import { ClipboardPaste, Pencil, Upload } from "lucide-react"
 import { toast } from "sonner"
 import {
   api, DEFAULT_COLORS, type Doc, type DocFormat, type DocMeta, type EngineStatus, type Settings, type Tab, type Voice,
+  resolveWorkspace,
 } from "@/lib/api"
 import { Player } from "@/reading/player"
 import { TabBar, tabTitle } from "@/components/tab-bar"
@@ -68,7 +69,7 @@ export default function App() {
   const commitTabs = useCallback((next: Tab[]) => {
     tabsRef.current = next
     setTabs(next)
-    api.saveTabs(next).catch(fail("Couldn't save the tabs"))
+    api.saveWorkspace({ tabs: next }).catch(fail("Couldn't save the tabs"))
   }, [])
 
   const setDocList = (next: DocMeta[]) => { docsRef.current = next; setDocs(next) }
@@ -84,7 +85,7 @@ export default function App() {
     activeRef.current = id
     setActiveTab(id)
     setComposing(false)
-    updateSettings({ activeTab: id })
+    api.saveWorkspace({ activeTab: id }).catch(fail("Couldn't save the current tab"))
     if (!docId) return setDoc(null)
     api.doc(docId).then(d => {
       // The position saved here may still be on its way to the server; the page's copy is the newest.
@@ -92,7 +93,7 @@ export default function App() {
       // A quicker click on another tab wins.
       if (activeRef.current === id && tabsRef.current.find(t => t.id === id)?.docId === d.id) setDoc({ ...d, position: meta?.position ?? d.position })
     }, fail("Couldn't open the document"))
-  }, [commitTabs, updateSettings])
+  }, [commitTabs])
 
   const newTab = useCallback((docId: string | null, open: boolean, id = tabId()) => {
     commitTabs([...tabsRef.current, { id, name: null, docId }])
@@ -197,22 +198,34 @@ export default function App() {
   // one empty tab.
   useEffect(() => {
     player.onError = fail("Couldn't make speech")
-    // Addresses from the version with history (?tab=…&doc=…) are cleared.
-    if (location.search) window.history.replaceState(null, "", location.pathname)
-    Promise.all([api.docs(), api.tabs(), api.voices(), api.settings()]).then(([list, savedTabs, v, saved]) => {
+    resolveWorkspace().then(() => Promise.all([api.docs(), api.workspace(), api.voices(), api.settings()])).then(([list, workspace, v, saved]) => {
       setDocList(list)
       setVoices(v.voices)
       const merged = { voice: v.default, speed: 1, ...DEFAULT_COLORS, ...saved }
       setSettings(merged)
       player.setVoice(merged.voice)
       player.setSpeed(merged.speed)
-      const first = (savedTabs ?? [{ id: tabId(), name: null, docId: null }]).map(({ id, name, docId }) => ({ id, name, docId }))
-      if (savedTabs) { tabsRef.current = first; setTabs(first) }
+      const first = (workspace.tabs ?? [{ id: tabId(), name: null, docId: null }]).map(({ id, name, docId }) => ({ id, name, docId }))
+      if (workspace.tabs) { tabsRef.current = first; setTabs(first) }
       else commitTabs(first)
-      const tab = first.find(t => t.id === merged.activeTab) ?? first[0]
+      const tab = first.find(t => t.id === workspace.activeTab) ?? first[0]
       if (tab) show(tab.id)
     }, fail("Couldn't reach the Reader server"))
   }, [player, show, commitTabs])
+
+  // Tells the server this window's workspace is open, so a bare address in another window takes a different one.
+  // Closing the page frees it at once; a crash frees it after the server's open time.
+  useEffect(() => {
+    const ping = () => { api.pingWorkspace().catch(() => {}) }
+    const timer = window.setInterval(ping, 20_000)
+    window.addEventListener("pagehide", api.releaseWorkspace)
+    window.addEventListener("pageshow", ping)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener("pagehide", api.releaseWorkspace)
+      window.removeEventListener("pageshow", ping)
+    }
+  }, [])
 
   // Voice engine state, polled until ready and then now and then.
   useEffect(() => {
@@ -335,6 +348,7 @@ export default function App() {
         onClose={closeTab}
         onNew={() => newTab(null, true)}
         onRename={(id, name) => commitTabs(tabsRef.current.map(t => (t.id === id ? { ...t, name } : t)))}
+        onReorder={commitTabs}
       />
       <main className="relative min-h-0 flex-1 bg-background">
         {main}

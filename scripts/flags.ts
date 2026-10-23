@@ -5,6 +5,7 @@
 //   pnpm flags replay <id> [options] the flag's saved audio against the sentence made again with the proposed fixes
 //   pnpm flags close <id> [options]  writes confirmed fixes and a test line, and closes the flag
 //   pnpm flags add [options]         the same for a fix that has no flag (an unknown word)
+//   pnpm flags review <word> …       marks unknown words whose guess is right, so they leave the list
 // <id> is the start of the flag's time. Options: --fix "word|action|value|condition" (fixes.tsv), --unit "unit|one|many"
 // (units.tsv), --site '{"domain.com":{"name":"X"}}' (sites.json), --check <word> and --text "<sentence>" (a checks.jsonl line),
 // --outcome fixed|ticket|nofault and --detail "<text>" (close), --play (replay: play both through Windows).
@@ -29,6 +30,7 @@ const dataDir = process.env.READER_DATA || join(root, 'data');
 const flagsPath = join(dataDir, 'pronunciation/flags.jsonl');
 const closedPath = join(dataDir, 'pronunciation/flags-closed.jsonl');
 const unknownPath = join(dataDir, 'pronunciation/unknown.jsonl');
+const reviewedPath = join(dataDir, 'pronunciation/reviewed.txt');
 const scratch = join(root, 'tmp/replay');
 const HEADTTS = 'http://localhost:8882';
 
@@ -42,10 +44,8 @@ function readLines<T>(path: string): T[] {
 const fixedWords = () =>
   new Set(readFileSync(join(root, 'pronunciation/fixes.tsv'), 'utf8').split('\n').slice(1).map(l => l.split('\t')[0].toLowerCase()));
 
-function openFlags() {
-  const closed = new Set(readLines<{ time: string }>(closedPath).map(c => c.time));
-  return readLines<Saved>(flagsPath).filter(f => !closed.has(f.time));
-}
+// flags.jsonl holds open flags only: closing a flag moves it to flags-closed.jsonl.
+const openFlags = () => readLines<Saved>(flagsPath);
 
 function findFlag(id?: string) {
   const open = openFlags();
@@ -58,9 +58,13 @@ function findFlag(id?: string) {
 const shown = ({ time, word, sentence, before, after, markdown, note, input }: Saved) =>
   JSON.stringify({ time, word, sentence, before, after, markdown, note, input });
 
+// reviewed.txt: words an investigation judged right, one per line in lower case. Only this script writes it, so the
+// server's rewrites of unknown.jsonl never lose a mark.
+const reviewedWords = () => new Set(existsSync(reviewedPath) ? readFileSync(reviewedPath, 'utf8').split('\n').filter(Boolean) : []);
+
 function topUnknown(n: number) {
-  const fixed = fixedWords();
-  return readLines<Unknown>(unknownPath).filter(u => !fixed.has(u.word)).slice(0, n)
+  const skip = new Set([...fixedWords(), ...reviewedWords()]);
+  return readLines<Unknown>(unknownPath).filter(u => !skip.has(u.word)).slice(0, n)
     .map(({ word, count, example, guess }) => JSON.stringify({ word, count, example, guess }));
 }
 
@@ -192,6 +196,13 @@ if (command === 'list') {
   console.log(flags.length ? flags.map(shown).join('\n') : 'No open flags.');
 } else if (command === 'unknown') {
   console.log(topUnknown(Number(arg) || 20).join('\n') || 'No unknown words.');
+} else if (command === 'review') {
+  if (positionals.length < 2) fail('review needs the words: pnpm flags review <word> …');
+  const had = reviewedWords();
+  const added = [...new Set(positionals.slice(1).map(w => w.toLowerCase()))].filter(w => !had.has(w));
+  mkdirSync(join(dataDir, 'pronunciation'), { recursive: true });
+  if (added.length) appendFileSync(reviewedPath, added.join('\n') + '\n');
+  console.log(added.length ? `Reviewed: ${added.join(', ')}` : 'Already reviewed.');
 } else if (command === 'bundle') {
   const file = (name: string) => readFileSync(join(root, 'pronunciation', name), 'utf8').trimEnd();
   const flags = openFlags();
@@ -216,11 +227,14 @@ if (command === 'list') {
     await writeCheck(values.check, sentence!, flag?.pieces);
   }
   if (flag) {
-    mkdirSync(join(dataDir, 'pronunciation'), { recursive: true });
-    appendFileSync(closedPath, JSON.stringify({ time: flag.time, closed: new Date().toISOString(), outcome, detail: values.detail }) + '\n');
+    // The whole flag moves to the closed file with its outcome. The rewrite is synchronous, so a flag the server appends
+    // meanwhile can only be lost inside the same instant.
+    appendFileSync(closedPath, JSON.stringify({ ...flag, closed: new Date().toISOString(), outcome, detail: values.detail }) + '\n');
+    const rest = readFileSync(flagsPath, 'utf8').split('\n').filter(l => l && JSON.parse(l).time !== flag.time);
+    writeFileSync(flagsPath, rest.length ? rest.join('\n') + '\n' : '');
     console.log(`Closed flag ${flag.time} (${outcome}).`);
   }
 } else {
-  fail('Usage: pnpm flags list | unknown [n] | bundle | replay <id> | close <id> | add');
+  fail('Usage: pnpm flags list | unknown [n] | bundle | replay <id> | close <id> | add | review <word> …');
 }
 process.exit(0);

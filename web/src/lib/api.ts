@@ -17,7 +17,6 @@ export type Settings = {
   speed?: number
   sentenceColor?: string
   wordColor?: string
-  activeTab?: string
 }
 
 export const DEFAULT_COLORS = { sentenceColor: "#fde68a", wordColor: "#fbbf24" }
@@ -33,6 +32,20 @@ async function call<T>(path: string, method = "GET", body?: unknown, signal?: Ab
   return res.status === 204 ? (undefined as T) : res.json()
 }
 
+// This window's tabs live in a workspace (rd-37). Its name is in the address (?w=3fa9c1). A bare address gets one from
+// the server, and the name is written into the address, so a reload, a reopened tab or a restored VS Code window finds
+// the same tabs. Mirrors server/store.ts.
+export type Workspace = { tabs: Tab[] | null; activeTab: string | null }
+let workspace = new URLSearchParams(location.search).get("w") ?? ""
+let resolving: Promise<string> | undefined
+export const resolveWorkspace = () => (resolving ??= (async () => {
+  if (!workspace) workspace = (await call<{ name: string }>("/api/workspace/claim", "POST")).name
+  // This also clears addresses from the version with history (?tab=…&doc=…).
+  window.history.replaceState(null, "", `${location.pathname}?w=${encodeURIComponent(workspace)}`)
+  return workspace
+})())
+const workspaceUrl = (action = "") => `/api/workspace${action}?w=${encodeURIComponent(workspace)}`
+
 export const api = {
   docs: () => call<DocMeta[]>("/api/docs"),
   doc: (id: string) => call<Doc>(`/api/docs/${id}`),
@@ -42,8 +55,11 @@ export const api = {
     call<DocMeta>(`/api/docs/${id}`, "PATCH", body),
   groups: () => call<Group[]>("/api/groups"),
   saveGroups: (groups: Group[]) => call<Group[]>("/api/groups", "PUT", groups),
-  tabs: () => call<Tab[] | null>("/api/tabs"),
-  saveTabs: (tabs: Tab[]) => call<Tab[]>("/api/tabs", "PUT", tabs),
+  workspace: () => call<Workspace>(workspaceUrl()),
+  saveWorkspace: (changes: { tabs?: Tab[]; activeTab?: string }) => call<Workspace>(workspaceUrl(), "PUT", changes),
+  // Tells the server this window is open, so no other bare address takes its workspace.
+  pingWorkspace: () => call<void>(workspaceUrl("/ping"), "POST"),
+  releaseWorkspace: () => navigator.sendBeacon(workspaceUrl("/release")),
   deleteDoc: (id: string) => call<void>(`/api/docs/${id}`, "DELETE"),
   voices: () => call<{ voices: Voice[]; default: string }>("/api/voices"),
   status: () => call<{ tts: EngineStatus }>("/api/status"),
