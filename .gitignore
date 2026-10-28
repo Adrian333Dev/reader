@@ -1,8 +1,7 @@
 tmp/
 node_modules
-data/*
-# The flags and the unknown-word log sync through the repo (rd-19). The repo must stay private: a flag holds document text.
-!data/pronunciation/
+# The flags and the unknown-word log hold document text, and the repo is public (rd-39).
+data/
 
 # A skill belonging to this project lives here as a real folder, committed. A
 # source's skill or a private one is a symlink holding this machine's path, which
